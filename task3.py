@@ -12,6 +12,31 @@ Results are written to:
   - outputs/task_3 (CSV via foreachBatch)
 """
 
+import os
+import sys
+
+# ----------------------------
+# CRITICAL WINDOWS & ENVIRONMENT PATH CORRECTIONS
+# ----------------------------
+# 1. Define explicit home directories
+os.environ["JAVA_HOME"] = r"C:\Program Files\Java\jdk-17"
+os.environ["HADOOP_HOME"] = r"C:\hadoop"
+os.environ["hadoop.home.dir"] = r"C:\hadoop"
+os.environ["SPARK_HOME"] = r"C:\Users\Devyansh Tailor\Documents\Githubfor\HandsOnStreamingSparkk\spark-env\Lib\site-packages\pyspark"
+
+# 2. Reconstruct PATH cleanly in a single execution step
+os.environ["PATH"] = (
+    os.path.join(os.environ["JAVA_HOME"], "bin") + os.pathsep +
+    os.path.join(os.environ["SPARK_HOME"], "bin") + os.pathsep +
+    r"C:\hadoop\bin" + os.pathsep +
+    os.environ.get("PATH", "")
+)
+
+# 3. Security modular patches & Network loopback bind
+# os.environ["JAVA_TOOL_OPTIONS"] = "--add-opens java.base/javax.security.auth=ALL-UNNAMED"
+os.environ["SPARK_LOCAL_IP"] = "127.0.0.1"
+
+# NOW WE IMPORT PYSPARK MODULES SAFELY
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import (
     from_json, col, to_timestamp,
@@ -19,14 +44,13 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import (
     StructType, StructField,
-    StringType, DoubleType
+    StringType, DoubleType, IntegerType
 )
-import os
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-SOCKET_HOST  = "localhost"
+SOCKET_HOST  = "127.0.0.1" 
 SOCKET_PORT  = 9999
 OUTPUT_DIR   = os.path.join(os.path.dirname(__file__), "outputs", "task_3")
 CHECKPOINT_C = os.path.join(os.path.dirname(__file__), "checkpoints", "task_3_console")
@@ -46,17 +70,17 @@ spark = (
     SparkSession.builder
     .appName("RideSharing_Task3_WindowedAnalytics")
     .master("local[*]")
-    .config("spark.sql.shuffle.partitions", "4")
+    .config("spark.sql.shuffle.partitions", "2") 
     .getOrCreate()
 )
 spark.sparkContext.setLogLevel("WARN")
 
 # ---------------------------------------------------------------------------
-# Schema
+# Schema (Matches your generator exactly)
 # ---------------------------------------------------------------------------
 ride_schema = StructType([
     StructField("trip_id",     StringType(), True),
-    StructField("driver_id",   StringType(), True),
+    StructField("driver_id",   IntegerType(), True), 
     StructField("distance_km", DoubleType(), True),
     StructField("fare_amount", DoubleType(), True),
     StructField("timestamp",   StringType(), True),
@@ -73,7 +97,6 @@ parsed = (
     .load()
     .select(from_json(col("value"), ride_schema).alias("data"))
     .select("data.*")
-    # Convert string timestamp → proper TimestampType column called event_time
     .withColumn("event_time", to_timestamp(col("timestamp"), TIMESTAMP_FMT))
     .drop("timestamp")
 )
@@ -90,13 +113,11 @@ windowed_agg = (
     .agg(
         _round(_sum("fare_amount"), 2).alias("total_fare")
     )
-    # Flatten window struct into readable start/end columns
     .select(
         col("window.start").alias("window_start"),
         col("window.end").alias("window_end"),
         col("total_fare"),
     )
-    .orderBy("window_start")
 )
 
 # ---------------------------------------------------------------------------
@@ -107,7 +128,7 @@ console_query = (
     .format("console")
     .option("truncate", False)
     .option("numRows", 30)
-    .outputMode("append")       # append is correct with watermark
+    .outputMode("append") 
     .option("checkpointLocation", CHECKPOINT_C)
     .start()
 )
@@ -138,7 +159,7 @@ csv_query = (
     .start()
 )
 
-print(f"[Task 3] Windowed streaming started  ({WINDOW_DURATION} window, {SLIDE_DURATION} slide).")
+print(f"[Task 3] Windowed streaming started ({WINDOW_DURATION} window, {SLIDE_DURATION} slide).")
 print(f"[Task 3] CSV output → {OUTPUT_DIR}")
 print("[Task 3] Note: windowed results appear only after the watermark advances.")
 print("[Task 3] Press Ctrl+C to stop.\n")

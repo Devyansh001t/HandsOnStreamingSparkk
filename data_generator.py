@@ -1,70 +1,46 @@
-"""
-data_generator.py
------------------
-Streams synthetic ride-sharing JSON records over a TCP socket on localhost:9999.
-Each record has the schema:
-    trip_id, driver_id, distance_km, fare_amount, timestamp
-
-Run this script first and keep it running while executing any task script.
-"""
-
 import socket
 import json
 import time
 import random
-from datetime import datetime
 from faker import Faker
 
 fake = Faker()
 
-HOST = "localhost"
-PORT = 9999
-EMIT_INTERVAL = 0.8          # seconds between records
-NUM_DRIVERS = 20             # pool of driver IDs to cycle through
-
-driver_pool = [f"D{str(i).zfill(3)}" for i in range(1, NUM_DRIVERS + 1)]
-
-
-def generate_record() -> str:
-    """Return a single JSON-encoded ride record followed by a newline."""
-    record = {
-        "trip_id":     fake.uuid4(),
-        "driver_id":   random.choice(driver_pool),
-        "distance_km": round(random.uniform(1.0, 50.0), 2),
-        "fare_amount": round(random.uniform(5.0, 120.0), 2),
-        "timestamp":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+# Generate a random ride event
+def generate_ride_event():
+    return {
+        "trip_id": fake.uuid4(),
+        "driver_id": str(random.randint(1, 100)), # FIXED: Cast integer to a string to match Spark
+        "distance_km": round(random.uniform(1, 50), 2),
+        "fare_amount": round(random.uniform(5, 150), 2),
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
     }
-    return json.dumps(record)
 
+# Start streaming using socket
+def start_streaming(host="127.0.0.1", port=9999): # FIXED: Using 127.0.0.1 is bulletproof on Windows
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Allows quick script restarts
+    server_socket.bind((host, port))
+    server_socket.listen(5)  
+    print(f"Streaming data to {host}:{port}...")
 
-def main():
-    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_sock.bind((HOST, PORT))
-    server_sock.listen(1)
+    while True:
+        try:
+            conn, addr = server_socket.accept()
+            print(f"New client connected: {addr}")
 
-    print(f"[data_generator] Listening on {HOST}:{PORT} — waiting for a Spark connection...")
+            while True:
+                try:
+                    ride_event = generate_ride_event()
+                    conn.send((json.dumps(ride_event) + "\n").encode("utf-8"))
+                    print("Sent:", ride_event)
+                    time.sleep(1)
+                except (BrokenPipeError, ConnectionResetError):
+                    print(f"Client {addr} disconnected. Waiting for a new client.")
+                    break  
 
-    conn, addr = server_sock.accept()
-    print(f"[data_generator] Spark connected from {addr}. Streaming records every {EMIT_INTERVAL}s ...")
-
-    try:
-        while True:
-            record = generate_record()
-            payload = record + "\n"
-            try:
-                conn.sendall(payload.encode("utf-8"))
-                print(f"[data_generator] Sent: {record}")
-            except BrokenPipeError:
-                print("[data_generator] Spark disconnected. Exiting.")
-                break
-            time.sleep(EMIT_INTERVAL)
-    except KeyboardInterrupt:
-        print("\n[data_generator] Interrupted. Shutting down.")
-    finally:
-        conn.close()
-        server_sock.close()
-
+        except Exception as e:
+            print(f"Error accepting connection: {e}")
 
 if __name__ == "__main__":
-    main()
+    start_streaming()

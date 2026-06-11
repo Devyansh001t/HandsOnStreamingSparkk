@@ -16,13 +16,19 @@ Note: complete-mode aggregations require foreachBatch for CSV because
       an unbounded stream.
 """
 
+import os
+
+os.environ["HADOOP_HOME"] = "C:\\hadoop"
+os.environ["hadoop.home.dir"] = "C:\\hadoop"
+os.environ["JAVA_TOOL_OPTIONS"] = "--add-opens java.base/javax.security.auth=ALL-UNNAMED"
+
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import from_json, col, sum as _sum, avg, round as _round
 from pyspark.sql.types import (
     StructType, StructField,
     StringType, DoubleType
 )
-import os
+
 
 # ---------------------------------------------------------------------------
 # Configuration
